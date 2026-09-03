@@ -1,0 +1,7 @@
+config.json
+cache/
+payments/
+__pycache__/
+*.pyc
+.venv/
+venv/
