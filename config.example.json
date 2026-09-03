@@ -1,0 +1,21 @@
+{
+  "buy_in": 50,
+  "leagues": [
+    {
+      "name": "League A",
+      "league_id": 123456,
+      "espn_s2": "",
+      "swid": "",
+      "start_year": 2019,
+      "current_year": 2026
+    },
+    {
+      "name": "League B",
+      "league_id": 654321,
+      "espn_s2": "",
+      "swid": "",
+      "start_year": 2020,
+      "current_year": 2026
+    }
+  ]
+}
