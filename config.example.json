@@ -2,20 +2,46 @@
   "buy_in": 50,
   "leagues": [
     {
-      "name": "League A",
+      "platform": "espn",
+      "name": "ESPN League A",
       "league_id": 123456,
       "espn_s2": "",
       "swid": "",
       "start_year": 2019,
-      "current_year": 2026
+      "current_year": 2026,
+      "my_team_id": 1
     },
     {
-      "name": "League B",
+      "platform": "espn",
+      "name": "ESPN League B",
       "league_id": 654321,
       "espn_s2": "",
       "swid": "",
       "start_year": 2020,
-      "current_year": 2026
+      "current_year": 2026,
+      "my_team_id": 1
+    },
+    {
+      "platform": "espn",
+      "name": "ESPN League C",
+      "league_id": 789012,
+      "espn_s2": "",
+      "swid": "",
+      "start_year": 2021,
+      "current_year": 2026,
+      "my_team_id": 1
+    },
+    {
+      "platform": "sleeper",
+      "name": "Sleeper League A",
+      "sleeper_league_id": "",
+      "sleeper_username": ""
+    },
+    {
+      "platform": "sleeper",
+      "name": "Sleeper League B",
+      "sleeper_league_id": "",
+      "sleeper_username": ""
     }
   ]
 }

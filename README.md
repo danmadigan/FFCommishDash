@@ -1,13 +1,20 @@
 # Fantasy Football Dashboard
 
-A local Streamlit dashboard for your two ESPN leagues: who's paid, weekly
-high scorers, and all-time records (most points in a season, most points
-in a week, championships per owner).
+A Streamlit dashboard for your fantasy football leagues, across both ESPN
+and Sleeper:
+
+- **League Dashboard** (ESPN leagues) — who's paid, weekly high scorers,
+  and all-time records (most points in a season, most points in a week,
+  championships per owner).
+- **Lineup Optimizer** (every league, any platform) — upload a rankings/
+  projections CSV and get the highest-scoring *legal* starting lineup for
+  each of your teams, computed exactly against that league's real roster
+  slots (FLEX/SUPERFLEX included) via optimal assignment, not a greedy
+  guess.
 
 ## 1. Install
 
 ```bash
-cd espn-ff-dashboard
 pip install -r requirements.txt
 ```
 
@@ -28,7 +35,20 @@ streamlit run app.py` is the reliable launch command if the plain
 These cookies don't expire quickly, but if the app suddenly can't
 authenticate, re-grab them the same way.
 
-## 3. Run it
+You'll also want **your team ID** for the Lineup Optimizer (it needs to
+know which roster in the league is yours) — it's the number in your
+team's URL when you're viewing it, e.g. `...&teamId=4`.
+
+## 3. Sleeper leagues need no cookies
+
+Sleeper's league data is public, so there's nothing to authenticate:
+
+1. Your **league ID** is the number in the league's URL, e.g.
+   `sleeper.com/leagues/123456789/...`.
+2. Your **Sleeper username** (or display name) identifies which roster in
+   that league is yours.
+
+## 4. Run it
 
 ```bash
 cp config.example.json config.json
@@ -36,11 +56,15 @@ streamlit run app.py
 ```
 
 The first time it opens, use the **⚙️ Manage leagues** panel in the
-sidebar to add each of your two leagues (name, league ID, cookies, and
-the year range you want tracked for history) — this fills in the
-`config.json` you just copied.
+sidebar to add each of your five teams — pick ESPN or Sleeper per league,
+then fill in that platform's fields (league ID/cookies/team ID for ESPN;
+league ID/username for Sleeper) — this fills in the `config.json` you
+just copied.
 
-## 4. Using it
+## 5. Using it
+
+**📊 League Dashboard** (ESPN leagues only — this tab's data comes from
+ESPN's season-history API, which Sleeper doesn't expose the same way):
 
 - **Payment Tracker** — check off who's paid for the selected season,
   saves locally to `payments/`. Set your buy-in amount to see the pot
@@ -52,13 +76,39 @@ the year range you want tracked for history) — this fills in the
   later loads are instant). Shows top-10 single-season point totals,
   top-10 single-week point totals, and championship counts per owner.
 
+**🎯 Lineup Optimizer** (every league you've added, ESPN and Sleeper
+alike):
+
+1. Upload a rankings/projections CSV with columns `PlayerName, Position,
+   Team, Points, OverallRank, PositionRank` (the export most ranking
+   sites/tools produce). It's saved to `rankings/latest.csv` so you don't
+   have to re-upload every time you open the app that week.
+2. Each of your teams gets its own card showing the optimal starting
+   lineup — the combination of your actual rostered players that
+   maximizes total projected points, legal against that league's real
+   slot layout (including who's eligible for FLEX/SUPERFLEX) — plus the
+   bench, sorted by points.
+3. Any rostered player the app couldn't find in your rankings file is
+   flagged and scored as 0 (it still shows up, just deprioritized) —
+   usually a spelling difference or a very deep bench/practice-squad
+   player your rankings file doesn't cover.
+
+Rosters are fetched live from ESPN/Sleeper each time you open this tab
+(not cached), so it always reflects your current roster — but the
+*points* driving the recommendation are only as good as the rankings CSV
+you uploaded. One caveat worth knowing: every league is scored off that
+same CSV's flat `Points` column, not that league's individual scoring
+rules (PPR vs. standard, TE premium, custom bonuses, etc.) — accurate if
+your rankings already reflect scoring close to your leagues', otherwise
+treat the recommendation as a strong starting point rather than gospel.
+
 ## Storing this in GitHub
 
-`config.json`, `cache/`, and `payments/` are already listed in
-`.gitignore` — they hold your login cookies, cached league data, and
-payment status, none of which belong in version control (this applies
-even for a private repo). Only `config.example.json` gets committed as
-a template.
+`config.json`, `cache/`, `payments/`, and `rankings/` are already listed
+in `.gitignore` — they hold your login cookies, cached league data,
+payment status, and uploaded rankings, none of which belong in version
+control (this applies even for a private repo). Only
+`config.example.json` gets committed as a template.
 
 ```bash
 git init
@@ -72,28 +122,58 @@ On a new machine, cloning and running is just:
 
 ```bash
 git clone <your-repo-url>
-cd espn-ff-dashboard
+cd FFCommishDash
 pip install -r requirements.txt
-cp config.example.json config.json   # then re-add your leagues/cookies in the app
+cp config.example.json config.json   # then re-add your leagues in the app
 streamlit run app.py
 ```
 
-You'll need to re-enter league cookies each place you run it, since
+You'll need to re-enter league credentials each place you run it, since
 `config.json` never gets pushed. If you ever want the repo itself to
 carry non-secret defaults (like league IDs and year ranges, just not
 cookies), that can go in `config.example.json` instead of leaving it
 as a blank template.
 
+## Making it accessible from anywhere
+
+Everything above runs the app locally (`localhost:8501`), reachable only
+from that machine. Since you'll mostly use this from a desktop/laptop but
+still want it reachable elsewhere, the easiest free option is **Streamlit
+Community Cloud**:
+
+1. Push this repo to GitHub (steps above).
+2. At [share.streamlit.io](https://share.streamlit.io), sign in and pick
+   this repo/branch and `app.py` as the entry point, then deploy.
+3. Your league credentials never live in the repo — add them from
+   **⚙️ Manage leagues** directly on the deployed app the first time you
+   open it (or, better, paste your `config.json` contents into the app's
+   **Settings → Secrets**, then adjust `load_config`/`save_config` in
+   `app.py` to read from `st.secrets` — a small follow-up if you want
+   config to survive redeploys instead of re-entering it once on the
+   live app).
+4. You get a permanent `https://<your-app>.streamlit.app` URL you can
+   open from any browser, phone included.
+
+Any other host that runs a long-lived Python process (a spare machine
+with port-forwarding/Tailscale, Railway, Render, Fly.io, etc.) works the
+same way — the app itself has no server-side dependencies beyond what's
+in `requirements.txt`.
+
 ## Notes
 
-- All data is stored locally in this folder (`cache/` for ESPN pulls,
-  `payments/` for who's-paid state, `config.json` for your league
-  settings/cookies). Nothing leaves your machine except what you
-  explicitly push to GitHub — and the ignored files above are excluded
-  from that.
+- All data is stored locally in this folder (`cache/` for ESPN/Sleeper
+  pulls, `payments/` for who's-paid state, `rankings/` for your uploaded
+  projections, `config.json` for your league settings/credentials).
+  Nothing leaves your machine except what you explicitly push to GitHub
+  or deploy — and the ignored files above are excluded from that.
 - Championship counts rely on ESPN's `final_standing` field, which is
   only populated once a season is fully complete (so the current season
   won't show a champion until playoffs finish).
 - If a season fails to load (e.g. a year before the league existed, or
   ESPN changed team IDs), it's skipped and listed under "seasons failed
   to load" rather than crashing the app.
+- Player-name matching between your rankings CSV and each platform's
+  roster is automatic (it normalizes punctuation/suffixes and reconciles
+  team-code differences like `JAC`/`JAX` or `LA`/`LAR`), with a fuzzy
+  fallback for near-misses. Defenses are matched by NFL team, not name,
+  since every platform labels them differently.
