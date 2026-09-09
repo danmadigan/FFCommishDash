@@ -39,7 +39,6 @@ def save_config(cfg):
 config = load_config()
 
 st.sidebar.title("🏈 Fantasy Football")
-page = st.sidebar.radio("View", ["📊 League Dashboard", "🎯 Lineup Optimizer"])
 
 with st.sidebar.expander("⚙️ Manage leagues", expanded=not config["leagues"]):
     st.caption(
@@ -108,15 +107,16 @@ if not config["leagues"]:
     st.info("Add a league in the sidebar to get started.")
     st.stop()
 
+
 # ====================================================================== #
-# League Dashboard (payments / weekly scores / records) — ESPN leagues   #
+# Commissioner — payments / weekly scores / records (ESPN leagues)       #
 # ====================================================================== #
-if page == "📊 League Dashboard":
+def render_commissioner(config):
     espn_leagues = [lg for lg in config["leagues"] if lg["platform"] == "espn"]
     if not espn_leagues:
-        st.title("Fantasy Football Dashboard")
-        st.info("The League Dashboard covers ESPN leagues. Add one in the sidebar, or switch to 🎯 Lineup Optimizer.")
-        st.stop()
+        st.title("Commissioner")
+        st.info("This tab covers ESPN leagues. Add one in the sidebar, or switch to 🎯 Lineup Optimizer.")
+        return
 
     league_names = [lg["name"] for lg in espn_leagues]
     selected_name = st.sidebar.selectbox("Select league", league_names)
@@ -143,7 +143,7 @@ if page == "📊 League Dashboard":
         )
     except Exception as e:
         st.error(f"Couldn't fetch data from ESPN for {selected_year}: {e}")
-        st.stop()
+        return
 
     teams = season_data["teams"]
 
@@ -289,10 +289,33 @@ if page == "📊 League Dashboard":
                 "field, which only populates once a season is fully complete."
             )
 
+
 # ====================================================================== #
 # Lineup Optimizer — all teams, both platforms                           #
 # ====================================================================== #
-else:
+def _compute_league_lineup(lg, rankings_index, sleeper_players_db):
+    if lg["platform"] == "espn":
+        players, slots = espn_roster_and_slots(
+            lg["league_id"], lg["current_year"], lg["espn_s2"], lg["swid"], lg["my_team_id"]
+        )
+    else:
+        players, slots = sleeper_roster_and_slots(
+            lg["sleeper_league_id"], lg["sleeper_username"], players_db=sleeper_players_db
+        )
+
+    enriched = []
+    unmatched = []
+    for p in players:
+        match = match_player(p["name"], p["position"], p.get("nfl_team", ""), rankings_index)
+        pts = match["points"] if match else 0.0
+        enriched.append({**p, "points": pts})
+        if match is None:
+            unmatched.append(f"{p['name']} ({p['position']})")
+
+    return {"result": optimize_lineup(enriched, slots), "unmatched": unmatched}
+
+
+def render_optimizer(config):
     st.title("🎯 Lineup Optimizer")
     st.caption(
         "Upload this week's rankings/projections and get the highest-scoring legal "
@@ -314,51 +337,51 @@ else:
     if uploaded is not None:
         RANKINGS_PATH.write_bytes(uploaded.getvalue())
         st.success(f"Saved {uploaded.name} as this week's rankings.")
+        st.session_state.pop("optimizer_data", None)
 
     if not RANKINGS_PATH.exists():
         st.info("Upload a rankings CSV to get started.")
-        st.stop()
+        return
 
     rankings_rows = parse_rankings_csv(str(RANKINGS_PATH))
     rankings_index = build_rankings_index(rankings_rows)
     mtime = datetime.fromtimestamp(RANKINGS_PATH.stat().st_mtime)
     st.caption(f"Using rankings uploaded {mtime:%b %d, %Y %I:%M %p} — {len(rankings_rows)} players loaded.")
 
-    sleeper_players_db = None  # lazily loaded once, shared across Sleeper leagues
+    # Rosters are only re-fetched on an explicit click (or the first time this
+    # tab is used this session) — not on every rerun — since this tab now
+    # lives alongside the Commissioner tab and any interaction there (e.g. a
+    # payment checkbox) would otherwise also trigger live ESPN/Sleeper calls.
+    refresh_clicked = st.button("🔄 Load / refresh lineups", type="primary")
+    if refresh_clicked or "optimizer_data" not in st.session_state:
+        sleeper_players_db = None
+        data, errors = {}, {}
+        for lg in config["leagues"]:
+            try:
+                if lg["platform"] == "sleeper" and sleeper_players_db is None:
+                    with st.spinner("Loading Sleeper player database..."):
+                        sleeper_players_db = fetch_players_db()
+                data[lg["name"]] = _compute_league_lineup(lg, rankings_index, sleeper_players_db)
+            except Exception as e:
+                errors[lg["name"]] = str(e)
+        st.session_state["optimizer_data"] = {"data": data, "errors": errors}
+
+    cached = st.session_state["optimizer_data"]
 
     for lg in config["leagues"]:
         icon = "🟦" if lg["platform"] == "espn" else "🟩"
         with st.expander(f"{icon} {lg['name']}", expanded=True):
-            try:
-                if lg["platform"] == "espn":
-                    players, slots = espn_roster_and_slots(
-                        lg["league_id"], lg["current_year"], lg["espn_s2"], lg["swid"], lg["my_team_id"]
-                    )
-                else:
-                    if sleeper_players_db is None:
-                        with st.spinner("Loading Sleeper player database..."):
-                            sleeper_players_db = fetch_players_db()
-                    players, slots = sleeper_roster_and_slots(
-                        lg["sleeper_league_id"], lg["sleeper_username"], players_db=sleeper_players_db
-                    )
-            except Exception as e:
-                st.error(f"Couldn't load this team's roster: {e}")
+            if lg["name"] in cached["errors"]:
+                st.error(f"Couldn't load this team's roster: {cached['errors'][lg['name']]}")
                 continue
 
-            if not players:
+            info = cached["data"].get(lg["name"])
+            if info is None:
                 st.warning("No roster players found — double-check this league's settings in Manage leagues.")
                 continue
 
-            enriched = []
-            unmatched = []
-            for p in players:
-                match = match_player(p["name"], p["position"], p.get("nfl_team", ""), rankings_index)
-                pts = match["points"] if match else 0.0
-                enriched.append({**p, "points": pts})
-                if match is None:
-                    unmatched.append(f"{p['name']} ({p['position']})")
-
-            result = optimize_lineup(enriched, slots)
+            result = info["result"]
+            unmatched = info["unmatched"]
 
             starter_rows = []
             total = 0.0
@@ -398,3 +421,12 @@ else:
                 st.warning(w)
             if unmatched:
                 st.caption("⚠️ Not found in rankings, scored as 0 pts: " + ", ".join(sorted(unmatched)))
+
+
+tab_commissioner, tab_optimizer = st.tabs(["🏛️ Commissioner", "🎯 Lineup Optimizer"])
+
+with tab_commissioner:
+    render_commissioner(config)
+
+with tab_optimizer:
+    render_optimizer(config)
