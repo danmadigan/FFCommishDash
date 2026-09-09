@@ -1,6 +1,7 @@
 config.json
 cache/
 payments/
+rankings/
 __pycache__/
 *.pyc
 .venv/

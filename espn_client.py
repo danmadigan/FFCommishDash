@@ -95,3 +95,58 @@ def fetch_multi_year(league_id, years, espn_s2, swid, force_refresh=False):
         except Exception as e:
             all_years[year] = {"error": str(e)}
     return all_years
+
+
+# ESPN's roster-slot vocabulary -> the normalized slot vocabulary used by
+# lineup_optimizer.SLOT_ELIGIBILITY.
+_SLOT_MAP = {
+    "QB": "QB",
+    "RB": "RB",
+    "WR": "WR",
+    "TE": "TE",
+    "K": "K",
+    "D/ST": "DEF",
+    "RB/WR/TE": "FLEX",
+    "RB/WR": "RB/WR",
+    "WR/TE": "WR/TE",
+    "OP": "SUPERFLEX",
+    "TQB": "SUPERFLEX",
+}
+_EXCLUDE_SLOTS = {"BE", "IR", "", "Rookie", "ER"}
+
+
+def get_team_roster_and_slots(league_id, year, espn_s2, swid, team_id):
+    """Live (uncached) fetch of one team's current roster plus the
+    league's starting-lineup slot layout — used by the lineup optimizer,
+    which needs up-to-date rosters, not the season-summary cache.
+
+    Returns (players, slots):
+      players: list of dicts {name, position, nfl_team, injury_status}
+      slots: list of normalized slot-type strings, one per starting slot
+    """
+    league = League(league_id=int(league_id), year=int(year), espn_s2=espn_s2, swid=swid)
+    team = next((t for t in league.teams if t.team_id == int(team_id)), None)
+    if team is None:
+        raise ValueError(f"Team ID {team_id} not found in league {league_id}.")
+
+    players = []
+    for p in team.roster:
+        pos = "DEF" if p.position == "D/ST" else p.position
+        players.append(
+            {
+                "name": p.name,
+                "position": pos,
+                "nfl_team": p.proTeam,
+                "injury_status": getattr(p, "injuryStatus", ""),
+            }
+        )
+
+    slots = []
+    for label, count in league.settings.position_slot_counts.items():
+        if label in _EXCLUDE_SLOTS:
+            continue
+        mapped = _SLOT_MAP.get(label)
+        if mapped:
+            slots.extend([mapped] * int(count))
+
+    return players, slots
