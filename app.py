@@ -20,7 +20,32 @@ RANKINGS_PATH = Path("rankings") / "latest.csv"
 RANKINGS_PATH.parent.mkdir(exist_ok=True)
 
 
+def _leagues_from_secrets():
+    """If this deployment has leagues configured via Streamlit secrets
+    (an [[leagues]] array of tables in secrets.toml, or pasted into the
+    Streamlit Cloud app's Settings -> Secrets panel), use that as the
+    source of truth instead of the local config.json file. Secrets are
+    read-only at runtime and survive app restarts/redeploys, unlike the
+    local filesystem, which is wiped on every restart on Streamlit Cloud."""
+    try:
+        if "leagues" not in st.secrets:
+            return None
+    except Exception:
+        return None  # no secrets.toml at all — fall back to config.json
+
+    leagues = []
+    for entry in st.secrets["leagues"]:
+        lg = dict(entry)
+        lg.setdefault("platform", "espn")
+        leagues.append(lg)
+    return leagues
+
+
 def load_config():
+    secrets_leagues = _leagues_from_secrets()
+    if secrets_leagues is not None:
+        return {"leagues": secrets_leagues, "buy_in": st.secrets.get("buy_in", 50), "source": "secrets"}
+
     if CONFIG_PATH.exists():
         with open(CONFIG_PATH) as f:
             cfg = json.load(f)
@@ -28,89 +53,105 @@ def load_config():
         cfg = {"leagues": [], "buy_in": 50}
     for lg in cfg.get("leagues", []):
         lg.setdefault("platform", "espn")
+    cfg["source"] = "file"
     return cfg
 
 
 def save_config(cfg):
     with open(CONFIG_PATH, "w") as f:
-        json.dump(cfg, f, indent=2)
+        json.dump({"leagues": cfg["leagues"], "buy_in": cfg["buy_in"]}, f, indent=2)
 
 
 config = load_config()
+using_secrets = config["source"] == "secrets"
 
 st.sidebar.title("🏈 Fantasy Football")
 
 with st.sidebar.expander("⚙️ Manage leagues", expanded=not config["leagues"]):
-    st.caption(
-        "ESPN private leagues need the `espn_s2`/`SWID` cookies (see README). "
-        "Sleeper leagues just need the league ID and your Sleeper username — no cookies needed."
-    )
-    for i, lg in enumerate(config["leagues"]):
-        tag = "ESPN" if lg["platform"] == "espn" else "Sleeper"
-        col1, col2 = st.columns([4, 1])
-        col1.text(f"• [{tag}] {lg['name']}")
-        if col2.button("🗑️", key=f"remove_league_{i}", help=f"Remove {lg['name']}"):
-            config["leagues"].pop(i)
-            save_config(config)
-            st.session_state.pop("optimizer_data", None)
-            st.rerun()
-
-    platform = st.selectbox("Platform", ["ESPN", "Sleeper"], key="new_platform")
-
-    with st.form("add_league", clear_on_submit=True):
-        name = st.text_input("League name")
-        if platform == "ESPN":
-            league_id = st.text_input("League ID")
-            espn_s2 = st.text_input("espn_s2 cookie", type="password")
-            swid = st.text_input("SWID cookie", type="password")
-            c1, c2, c3 = st.columns(3)
-            start_year = c1.number_input("First season to track", min_value=2010, max_value=2035, value=2019)
-            current_year = c2.number_input("Current season", min_value=2010, max_value=2035, value=2026)
-            my_team_id = c3.number_input(
-                "Your team ID", min_value=1, value=1, help="Found in your team's URL, e.g. ...&teamId=N"
-            )
-        else:
-            sleeper_league_id = st.text_input(
-                "Sleeper league ID", help="The number in your league's URL on sleeper.com"
-            )
-            sleeper_username = st.text_input("Your Sleeper username")
-
-        submitted = st.form_submit_button("Add league")
-        if submitted and name:
-            if platform == "ESPN" and league_id:
-                config["leagues"].append(
-                    {
-                        "platform": "espn",
-                        "name": name,
-                        "league_id": int(league_id),
-                        "espn_s2": espn_s2,
-                        "swid": swid,
-                        "start_year": int(start_year),
-                        "current_year": int(current_year),
-                        "my_team_id": int(my_team_id),
-                    }
-                )
+    if using_secrets:
+        st.caption(
+            "Leagues on this deployment are managed via Streamlit **Secrets** "
+            "(Settings → Secrets in Streamlit Cloud), not through this panel — "
+            "that's what lets them survive app restarts. Edit the `[[leagues]]` "
+            "entries there and reboot the app to pick up changes."
+        )
+        for lg in config["leagues"]:
+            tag = "ESPN" if lg["platform"] == "espn" else "Sleeper"
+            st.text(f"• [{tag}] {lg['name']}")
+    else:
+        st.caption(
+            "ESPN private leagues need the `espn_s2`/`SWID` cookies (see README). "
+            "Sleeper leagues just need the league ID and your Sleeper username — no cookies needed."
+        )
+        for i, lg in enumerate(config["leagues"]):
+            tag = "ESPN" if lg["platform"] == "espn" else "Sleeper"
+            col1, col2 = st.columns([4, 1])
+            col1.text(f"• [{tag}] {lg['name']}")
+            if col2.button("🗑️", key=f"remove_league_{i}", help=f"Remove {lg['name']}"):
+                config["leagues"].pop(i)
                 save_config(config)
-                st.success(f"Added {name}.")
+                st.session_state.pop("optimizer_data", None)
                 st.rerun()
-            elif platform == "Sleeper" and sleeper_league_id and sleeper_username:
-                config["leagues"].append(
-                    {
-                        "platform": "sleeper",
-                        "name": name,
-                        "sleeper_league_id": sleeper_league_id.strip(),
-                        "sleeper_username": sleeper_username.strip(),
-                    }
+
+        platform = st.selectbox("Platform", ["ESPN", "Sleeper"], key="new_platform")
+
+        with st.form("add_league", clear_on_submit=True):
+            name = st.text_input("League name")
+            if platform == "ESPN":
+                league_id = st.text_input("League ID")
+                espn_s2 = st.text_input("espn_s2 cookie", type="password")
+                swid = st.text_input("SWID cookie", type="password")
+                c1, c2, c3 = st.columns(3)
+                start_year = c1.number_input("First season to track", min_value=2010, max_value=2035, value=2019)
+                current_year = c2.number_input("Current season", min_value=2010, max_value=2035, value=2026)
+                my_team_id = c3.number_input(
+                    "Your team ID", min_value=1, value=1, help="Found in your team's URL, e.g. ...&teamId=N"
                 )
-                save_config(config)
-                st.success(f"Added {name}.")
-                st.rerun()
             else:
-                st.error("Fill in all fields for the selected platform.")
+                sleeper_league_id = st.text_input(
+                    "Sleeper league ID", help="The number in your league's URL on sleeper.com"
+                )
+                sleeper_username = st.text_input("Your Sleeper username")
+
+            submitted = st.form_submit_button("Add league")
+            if submitted and name:
+                if platform == "ESPN" and league_id:
+                    config["leagues"].append(
+                        {
+                            "platform": "espn",
+                            "name": name,
+                            "league_id": int(league_id),
+                            "espn_s2": espn_s2,
+                            "swid": swid,
+                            "start_year": int(start_year),
+                            "current_year": int(current_year),
+                            "my_team_id": int(my_team_id),
+                        }
+                    )
+                    save_config(config)
+                    st.success(f"Added {name}.")
+                    st.rerun()
+                elif platform == "Sleeper" and sleeper_league_id and sleeper_username:
+                    config["leagues"].append(
+                        {
+                            "platform": "sleeper",
+                            "name": name,
+                            "sleeper_league_id": sleeper_league_id.strip(),
+                            "sleeper_username": sleeper_username.strip(),
+                        }
+                    )
+                    save_config(config)
+                    st.success(f"Added {name}.")
+                    st.rerun()
+                else:
+                    st.error("Fill in all fields for the selected platform.")
 
 if not config["leagues"]:
     st.title("Fantasy Football Dashboard")
-    st.info("Add a league in the sidebar to get started.")
+    if using_secrets:
+        st.info("No leagues configured in Secrets yet — add a `[[leagues]]` entry in Settings → Secrets and reboot the app.")
+    else:
+        st.info("Add a league in the sidebar to get started.")
     st.stop()
 
 

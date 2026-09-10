@@ -144,20 +144,36 @@ Community Cloud**:
 1. Push this repo to GitHub (steps above).
 2. At [share.streamlit.io](https://share.streamlit.io), sign in and pick
    this repo/branch and `app.py` as the entry point, then deploy.
-3. Your league credentials never live in the repo — add them from
-   **⚙️ Manage leagues** directly on the deployed app the first time you
-   open it (or, better, paste your `config.json` contents into the app's
-   **Settings → Secrets**, then adjust `load_config`/`save_config` in
-   `app.py` to read from `st.secrets` — a small follow-up if you want
-   config to survive redeploys instead of re-entering it once on the
-   live app).
-4. You get a permanent `https://<your-app>.streamlit.app` URL you can
+3. **Add your leagues via Secrets, not the sidebar form.** Streamlit
+   Cloud's local disk is wiped on every restart/redeploy, so anything
+   saved through **⚙️ Manage leagues** (which just writes `config.json`)
+   would vanish the next time the app restarts. Instead, on the deployed
+   app go to **Settings → Secrets** and paste in a `[[leagues]]` block —
+   see `.streamlit/secrets.toml.example` in this repo for the exact
+   format (copy it, fill in your real league IDs/cookies/usernames, paste
+   the whole thing into the Secrets box). The app detects secrets
+   automatically: once a `leagues` key is present, **⚙️ Manage leagues**
+   switches to a read-only summary and points back here instead of
+   showing the add/remove form, since edits made through the app itself
+   still wouldn't survive a restart.
+4. To change your leagues later, edit them in **Settings → Secrets**
+   again and reboot the app from the Streamlit Cloud dashboard.
+5. You get a permanent `https://<your-app>.streamlit.app` URL you can
    open from any browser, phone included.
+
+You can test this exact flow locally before deploying: copy
+`.streamlit/secrets.toml.example` to `.streamlit/secrets.toml` (already
+gitignored), fill in real values, and run the app normally — it'll pick
+up secrets the same way Streamlit Cloud does. With no `secrets.toml`
+present (the default), the app behaves exactly as described above:
+`config.json` plus the editable sidebar form.
 
 Any other host that runs a long-lived Python process (a spare machine
 with port-forwarding/Tailscale, Railway, Render, Fly.io, etc.) works the
 same way — the app itself has no server-side dependencies beyond what's
-in `requirements.txt`.
+in `requirements.txt`. Non-Streamlit hosts won't have `st.secrets`, so
+they'd fall back to the `config.json` flow unless you wire up that
+host's equivalent (an environment variable holding the same TOML, etc.).
 
 ## Notes
 

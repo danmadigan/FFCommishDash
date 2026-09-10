@@ -1,4 +1,5 @@
 config.json
+.streamlit/secrets.toml
 cache/
 payments/
 rankings/
