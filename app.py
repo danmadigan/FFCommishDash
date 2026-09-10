@@ -45,9 +45,15 @@ with st.sidebar.expander("⚙️ Manage leagues", expanded=not config["leagues"]
         "ESPN private leagues need the `espn_s2`/`SWID` cookies (see README). "
         "Sleeper leagues just need the league ID and your Sleeper username — no cookies needed."
     )
-    for lg in config["leagues"]:
+    for i, lg in enumerate(config["leagues"]):
         tag = "ESPN" if lg["platform"] == "espn" else "Sleeper"
-        st.text(f"• [{tag}] {lg['name']}")
+        col1, col2 = st.columns([4, 1])
+        col1.text(f"• [{tag}] {lg['name']}")
+        if col2.button("🗑️", key=f"remove_league_{i}", help=f"Remove {lg['name']}"):
+            config["leagues"].pop(i)
+            save_config(config)
+            st.session_state.pop("optimizer_data", None)
+            st.rerun()
 
     platform = st.selectbox("Platform", ["ESPN", "Sleeper"], key="new_platform")
 
@@ -368,9 +374,9 @@ def render_optimizer(config):
 
     cached = st.session_state["optimizer_data"]
 
-    for lg in config["leagues"]:
+    for i, lg in enumerate(config["leagues"]):
         icon = "🟦" if lg["platform"] == "espn" else "🟩"
-        with st.expander(f"{icon} {lg['name']}", expanded=True):
+        with st.expander(f"{icon} {lg['name']}", expanded=True, key=f"league_expander_{i}"):
             if lg["name"] in cached["errors"]:
                 st.error(f"Couldn't load this team's roster: {cached['errors'][lg['name']]}")
                 continue
@@ -402,7 +408,9 @@ def render_optimizer(config):
                 total += pts
 
             st.markdown(f"**Optimal starters** — projected total: **{total:.1f} pts**")
-            st.dataframe(pd.DataFrame(starter_rows), hide_index=True, use_container_width=True)
+            st.dataframe(
+                pd.DataFrame(starter_rows), hide_index=True, use_container_width=True, key=f"starters_df_{i}"
+            )
 
             bench_rows = [
                 {
@@ -414,8 +422,10 @@ def render_optimizer(config):
                 for p in result["bench"]
             ]
             if bench_rows:
-                with st.expander("Bench"):
-                    st.dataframe(pd.DataFrame(bench_rows), hide_index=True, use_container_width=True)
+                with st.expander("Bench", key=f"bench_expander_{i}"):
+                    st.dataframe(
+                        pd.DataFrame(bench_rows), hide_index=True, use_container_width=True, key=f"bench_df_{i}"
+                    )
 
             for w in result["warnings"]:
                 st.warning(w)
